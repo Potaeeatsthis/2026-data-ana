@@ -15,7 +15,7 @@ from sklearn.metrics import (classification_report, confusion_matrix, balanced_a
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.pipeline import Pipeline
 
-RECALL_TARGET = 0.60
+RECALL_TARGET = 0.60    # <- the one setting to tune: share of leavers you want to catch (try 0.5 / 0.6 / 0.7)
 
 path = sys.argv[1] if len(sys.argv) > 1 else "employee_churn_ecommerce_retail_5000_10cols.csv"
 df = pd.read_csv(path)
@@ -83,6 +83,24 @@ tiers["share_of_all_leavers"] = tiers.leavers / P
 print("\n========== RISK TIERS (test set) ==========")
 print(tiers.assign(churn_rate=(tiers.churn_rate*100).round(1).astype(str)+"%",
                    share_of_all_leavers=(tiers.share_of_all_leavers*100).round(1).astype(str)+"%").to_string())
+
+# Confusion matrix picture (counts + % within each actual group)
+cm = np.array([[tn, fp], [fn, tp]])
+row_pct = cm / cm.sum(axis=1, keepdims=True)
+cell_names = [["TN", "FP"], ["FN", "TP"]]
+fig, ax = plt.subplots(figsize=(6.5, 5.5))
+ax.imshow(row_pct, cmap="Blues", vmin=0, vmax=1)
+for i in range(2):
+    for j in range(2):
+        colour = "white" if row_pct[i, j] > 0.5 else "black"
+        ax.text(j, i, f"{cell_names[i][j]}\n{cm[i, j]}\n{row_pct[i, j]:.1%}",
+                ha="center", va="center", color=colour, fontsize=14, fontweight="bold")
+ax.set_xticks([0, 1]); ax.set_xticklabels(["Not churn", "Churn"])
+ax.set_yticks([0, 1]); ax.set_yticklabels(["Not churn", "Churn"])
+ax.set_xlabel("Predicted"); ax.set_ylabel("Actual")
+ax.set_title(f"Confusion matrix (threshold {threshold:.2f})\n% = share of each actual group (dark = high share)", fontsize=11)
+plt.tight_layout()
+plt.savefig("confusion_matrix.png", dpi=150)
 
 f, tp_r, _ = roc_curve(y_test, p)
 plt.figure(figsize=(7, 6))

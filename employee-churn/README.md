@@ -1,68 +1,52 @@
 # Employee Churn Prediction (E-commerce / Retail)
 
-Predicts which employees are likely to leave, using a random-undersampling "lottery" to handle class imbalance (12.3% churn).
-
-## Project structure
-
-```
-data/         original dataset + synthetic (augmented) experiment data
-models/       final model (models/) and earlier versions (models/old/)
-scripts/      data augmentation and segment analysis
-notebooks/    exploratory notebook
-reports/      written results summary
-figures/      ROC curves and segment chart
-```
+Predicts which employees are likely to leave. The data is heavily imbalanced (12.3% churn), so training uses a "lottery": random undersampling of stayers. The notebooks show how the model changed step by step.
 
 ## Data
 
 | File | What it is |
 |---|---|
-| `data/employee_churn_ecommerce_retail_5000_10cols.csv` | **Original data** - 5,000 employees, 12.3% churn. Use this for real conclusions. |
-| `data/employee_churn_ecommerce_retail_5000_augmented.csv` | **Synthetic experiment** - 637 active employees were given a termination date (churn 25%), chosen to follow patterns in the real data. Results on this file are inflated. |
-| `data/added_churners_log.csv` | Which employees were changed in the augmented file. |
+| `data/employee_churn_ecommerce_retail_5000_10cols.csv` | 5,000 employees, 10 columns. A blank `termination_date` means the employee is still employed (churn = 0). |
 
-## Model versions
+## Notebooks (read in order)
 
-| Version | File | Setup | Data | Balanced acc. | ROC AUC |
-|---|---|---|---|---|---|
-| v1 (old) | `models/old/v1_rf_lottery.py` | Random forest + lottery, fixed threshold | Augmented (25%) | 0.734 | 0.829 |
-| v1 (old) | same, reproduced | Random forest + lottery, threshold 0.45 | Original (12.3%) | 0.627 | 0.699 |
-| **Final** | `models/final_churn_model.py` | Logistic regression + lottery, threshold from 60% recall target | Original (12.3%) | **0.670** | **0.738** |
+| Notebook | What it covers |
+|---|---|
+| `notebooks/01_random_forest_lottery.ipynb` | **Model 1** - random forest + lottery, fixed threshold 0.45. Shows its weaknesses (overfitting, meaningless threshold). |
+| `notebooks/02_logistic_regression_lottery.ipynb` | **Model 2 (final)** - logistic regression + lottery, threshold chosen from a recall target. Includes risk tiers and feature weights. |
+| `notebooks/03_lottery_ticket_hypothesis.ipynb` | Separate experiment: does a pruned neural network (a "winning ticket") match the full network on this data? |
+| `notebooks/04_compare_models_confusion_matrices.ipynb` | Confusion matrices and ROC curves for the models side by side. |
 
-Final model on the original test set: catches 77 of 123 leavers (62.6%), 251 false alarms, precision 23.5% (random flagging would be 12.3%). 5-fold CV AUC 0.747 +/- 0.016.
+## Results (original data, test set: 123 leavers + 877 stayers)
 
-Ten model families (logistic, LDA, random forest, extra trees, gradient boosting, SVM, neural net, blends...) all reached an AUC of about 0.75 on the original data, so the limit comes from the information in the columns, not the algorithm.
+| | Model 1: random forest | Model 2: logistic regression |
+|---|---|---|
+| Decision rule | fixed threshold 0.45 | threshold from a 60% recall target |
+| Leavers caught | 54 (43.9%) | 77 (62.6%) |
+| False alarms | 163 | 251 |
+| Precision | 24.9% | 23.5% (random flagging: 12.3%) |
+| Balanced accuracy | 0.627 | **0.670** |
+| ROC AUC (test / 5-fold CV) | 0.699 / 0.719 | **0.738 / 0.747** |
+
+- The two models catch different numbers of leavers, so compare false alarms **at the same recall**: Model 2 raises about 18% fewer false alarms on average (see notebook 04).
+- Plain accuracy is misleading here ("flag nobody" scores 87.7%). Use balanced accuracy, ROC AUC and PR-AUC.
+- About ten model types all reached an AUC of about 0.75, so the limit is the information in the columns. New features (manager, promotions, time since last raise) would help more than a different algorithm.
+- Lottery ticket experiment: a small network keeps its AUC (about 0.744) with about 96% of weights removed, but a random re-initialisation of the same sparse structure does almost as well, so there is little evidence of a distinct winning-ticket effect on this data.
 
 ## How the final model works
 
 1. Label: blank `termination_date` = stayed, a date = left. `employee_id` and `termination_date` are not used as inputs.
-2. Split 80/20, stratified. Blanks filled with median (numeric) / most frequent (categorical), learned on training data only.
-3. Lottery: stayers randomly undersampled in the training set (`sampling_strategy=0.45`).
+2. Split 80/20 (stratified) before anything else. Blanks are filled with the median (numbers) or most frequent value (categories), learned from training data only.
+3. Lottery: stayers are randomly undersampled in the training set only (`sampling_strategy=0.45`).
 4. Logistic regression.
-5. Decision threshold chosen from cross-validated training scores to hit a recall target (`RECALL_TARGET`, default 0.60).
+5. Threshold: chosen from 5-fold cross-validated training scores to hit a recall target (default 60%).
 6. Evaluation on the untouched test set: confusion matrix, balanced accuracy, ROC AUC, PR-AUC, risk tiers.
 
-## Run (from the repository root)
+## Run
 
-```powershell
+```
 pip install -r requirements.txt
-
-# final model (original data)
-python models/final_churn_model.py data/employee_churn_ecommerce_retail_5000_10cols.csv
-
-# high-risk segment analysis
-python scripts/segment_analysis.py data/employee_churn_ecommerce_retail_5000_10cols.csv
-
-# regenerate the synthetic data (optional): args = input csv, target churn rate, strength
-python scripts/make_augmented.py data/employee_churn_ecommerce_retail_5000_10cols.csv 0.25
-
-# old v1 model (reads the augmented csv)
-python models/old/v1_rf_lottery.py
+jupyter notebook notebooks/
 ```
 
-Plots are saved to the folder you run from; move them to `figures/` if you want to keep them.
-
-## Notes
-
-- The augmented data is synthetic and was built to make the signal easier to learn. Report it as an experiment, never as evidence of real-world performance.
-- Plain accuracy is misleading here ("flag nobody" scores 87.7%). Use balanced accuracy, ROC AUC and PR-AUC.
+Each notebook looks for the CSV in `data/`, so run them from the `notebooks/` folder (or open them in VS Code).
